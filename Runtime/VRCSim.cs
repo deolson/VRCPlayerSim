@@ -291,6 +291,26 @@ namespace VRCSim
             if (udon != null) SimReflection.SendCustomEvent(udon, eventName);
         }
 
+        /// <summary>
+        /// Run an Udon program event through the UdonBehaviour program.
+        /// Events execute through program variable storage, NOT MonoBehaviour fields.
+        /// Critical: station events write to program heap, so game logic methods
+        /// must be called via RunEvent to see the correct state.
+        /// </summary>
+        public static void RunEvent(GameObject obj, string eventName)
+        {
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            if (udon == null) return;
+            var runEvent = udon.GetType().GetMethod("RunEvent",
+                new[] { typeof(string) });
+            runEvent?.Invoke(udon, new object[] { eventName });
+        }
+
+        /// <summary>
+        /// Tick one frame of the UdonBehaviour's Update loop.
+        /// </summary>
+        public static void RunUpdate(GameObject obj) => RunEvent(obj, "_update");
+
         // ── Validation & Reporting ─────────────────────────────────
 
         public static string GetStateReport()
