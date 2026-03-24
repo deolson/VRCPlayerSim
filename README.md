@@ -1,139 +1,127 @@
-# VRC Player Simulator
+# VRCSim — VRChat Multiplayer Simulator
 
-Simulates multiplayer interactions on top of VRChat's ClientSim. Spawns bot players that can sit in stations, own objects, and trigger Udon events — following VRChat networking rules.
+A Unity package that simulates multiplayer interactions on top of [ClientSim](https://docs.vrchat.com/docs/clientsim), enabling automated testing of VRChat worlds without requiring multiple VRChat clients.
 
-Works with **any** VRChat world project. No SDK modifications required.
+## The Problem
+
+ClientSim only simulates a single local player. Testing multiplayer mechanics (station seating, ownership transfer, synced variables, master-gated logic) requires manually launching VRChat with friends. This is slow, unrepeatable, and error-prone.
+
+## The Solution
+
+VRCSim extends ClientSim by:
+- **Spawning remote player bots** via ClientSim's built-in `SpawnRemotePlayer`
+- **Perspective swapping** — temporarily making a bot appear as the local player so Udon code sees the correct `Networking.LocalPlayer`
+- **Station interaction** — sitting bots in `VRCStation` objects through the real ClientSim event pipeline
+- **Ownership enforcement** — validating `ForceKinematicOnRemote` behavior
+- **Synced variable inspection** — reading/writing UdonBehaviour program variables
 
 ## Installation
 
-Add to your project's `Packages/manifest.json`:
+Add to your VRChat project's `Packages/manifest.json`:
 
 ```json
-"com.fire.vrcsim": "file:C:/Users/Fire/VRCPlayerSim"
+"com.fire.vrcsim": "file:../../VRCPlayerSim"
 ```
 
-## What It Simulates vs What It Can't
-
-| Feature | Real VRChat | ClientSim | VRCSim |
-|---------|-------------|-----------|--------|
-| Remote players exist | ✅ | ✅ (skeletal) | ✅ (with actions) |
-| Remote sits in station | ✅ | ❌ blocked | ✅ |
-| Station events correct player | ✅ | ❌ always LocalPlayer | ✅ |
-| Non-master perspective | ✅ | ❌ always master | ✅ RunAsPlayer |
-| ForceKinematicOnRemote | ✅ | ❌ (TODO in SDK) | ✅ |
-| Ownership + kinematic | ✅ | partial | ✅ |
-| OnDeserialization | ✅ | ❌ for remote | ✅ manual |
-| True network latency | ✅ | ❌ | ❌ |
-| Per-client Udon VM | ✅ | ❌ | ❌ |
+Or copy the `Runtime/` folder into your project's `Assets/`.
 
 ## Quick Start
 
 ```csharp
-using VRCSim;
-
-// Initialize (once per play mode session)
-VRCSim.VRCSim.Init();
-
-// Spawn players
+// In Play Mode (via Editor script, script-execute, or MonoBehaviour)
+var err = VRCSim.VRCSim.Init();
 var alice = VRCSim.VRCSim.SpawnPlayer("Alice");
-var bob = VRCSim.VRCSim.SpawnPlayer("Bob");
 
-// Sit in stations (fires events through real ClientSim pipeline)
-var station = GameObject.Find("Station_0");
-VRCSim.VRCSim.SitInStation(alice, station);
+// Sit Alice in a station
+var stationObj = GameObject.Find("MyStation");
+VRCSim.VRCSim.SitInStation(alice, stationObj);
 
-// Check state
-Debug.Log(VRCSim.VRCSim.GetStateReport());
+// Check synced vars
+var val = VRCSim.VRCSim.GetVar(gameManagerObj, "playerCount");
 
-// Clean up
+// Run code from Alice's perspective
+VRCSim.VRCSim.RunAsPlayer(alice, () => {
+    // Networking.LocalPlayer == alice
+    // alice.isLocal == true
+    // Networking.IsMaster == false
+});
+
+// Cleanup
 VRCSim.VRCSim.RemoveAllPlayers();
 ```
 
-## The Perspective Swap (Key Feature)
-
-`RunAsPlayer` temporarily makes Unity believe it's running on a different
-player's client:
-
-```csharp
-var bob = VRCSim.VRCSim.SpawnPlayer("Bob");
-
-// Inside RunAsPlayer:
-//   Networking.LocalPlayer == bob
-//   Networking.IsMaster == false (bob isn't master)
-//   bob.isLocal == true
-VRCSim.VRCSim.RunAsPlayer(bob, () => {
-    // Any Udon code triggered here runs from Bob's perspective.
-    // Master-gated code will correctly SKIP.
-    VRCSim.VRCSim.SitInStation(bob, stationObj);
-});
-
-// SitInStation already calls RunAsPlayer internally, so this is equivalent:
-VRCSim.VRCSim.SitInStation(bob, stationObj);
-```
-
-## How Station Events Work
-
-```
-VRCSim.SitInStation(bot, stationObj)
-  └─ RunAsPlayer(bot, ...)              ← swap Networking.LocalPlayer to bot
-       └─ FireStationEnterHandlers()     ← call IClientSimStationHandler on station
-            └─ ClientSimUdonHelper.OnStationEnter()  ← REAL ClientSim code
-                 └─ RunEvent(eventName, ("Player", Networking.LocalPlayer))
-                                                      ↑ returns bot, not original player
-```
-
-This catches MP-11 bugs (master-gated station callbacks) because
-`Networking.IsMaster` returns `false` inside the swap.
-
 ## API Reference
 
+### Initialization
+| Method | Description |
+|--------|-------------|
+| `Init()` | Initialize the simulator. Returns error string or null. |
+| `IsReady` | Whether the simulator is initialized and reflection resolved. |
+
 ### Player Lifecycle
-- `Init()` → error string or null
-- `SpawnPlayer(name)` → VRCPlayerApi
-- `RemovePlayer(player)`
-- `RemoveAllPlayers()`
-- `GetBots()` → List
-- `GetBot(name)` → VRCPlayerApi
+| Method | Description |
+|--------|-------------|
+| `SpawnPlayer(name)` | Spawn a remote bot. Returns `VRCPlayerApi`. |
+| `RemovePlayer(player)` | Remove a bot. Clears station occupancy. |
+| `RemoveAllPlayers()` | Remove all bots spawned this session. |
+| `GetBots()` | List all active bots. |
+| `GetBot(name)` | Find a bot by partial name match. |
+| `Teleport(player, pos, rot?)` | Move a player to a position. |
 
-### Movement
-- `Teleport(player, position, rotation?)`
+### Station Interaction
+| Method | Description |
+|--------|-------------|
+| `SitInStation(player, stationObj)` | Sit a player in a VRCStation. Fires real events. |
+| `ExitStation(player, stationObj)` | Remove a player from a VRCStation. |
 
-### Stations
-- `SitInStation(player, stationObj)` → bool
-- `ExitStation(player, stationObj)` → bool
+### Perspective & Networking
+| Method | Description |
+|--------|-------------|
+| `RunAsPlayer(player, action)` | Execute code as if `player` were the local player. |
+| `SetOwner(player, obj)` | Transfer ownership and enforce kinematic rules. |
+| `GetOwner(obj)` | Check who owns an object. |
+| `EnforceKinematic(obj)` | Apply ForceKinematicOnRemote on a single object. |
+| `ValidateKinematic()` | Find objects violating kinematic rules. |
+| `SimulateDeserialization(obj)` | Trigger OnDeserialization on UdonBehaviours. |
+| `SimulateLateJoiner(obj)` | Simulate a late joiner receiving state. |
 
-### Perspective
-- `RunAsPlayer(player, action)` — the killer feature
-
-### Ownership
-- `SetOwner(player, obj)` — transfers + enforces kinematic
-- `GetOwner(obj)` → VRCPlayerApi
-- `EnforceKinematic(obj)` — ForceKinematicOnRemote
-- `ValidateKinematic()` → List of issues
-
-### Udon Access
-- `GetVar(obj, varName)` → object
-- `SetVar(obj, varName, value)`
-- `SendEvent(obj, eventName)`
+### Udon Variables
+| Method | Description |
+|--------|-------------|
+| `GetVar(obj, name)` | Read a program variable from UdonBehaviour. |
+| `SetVar(obj, name, value)` | Write a program variable. |
+| `SendEvent(obj, eventName)` | Send a custom event to UdonBehaviour. |
 
 ### Validation
-- `GetStateReport()` → formatted string
-- `ValidateVars(obj, (name, expected)...)` → pass/fail report
-- `SimulateDeserialization(obj)`
-- `SimulateLateJoiner(obj)`
+| Method | Description |
+|--------|-------------|
+| `GetStateReport()` | Full state dump: players, ownership, kinematic. |
+| `ValidateVars(obj, expectations)` | Assert expected synced var values. |
 
-## Files
+## Architecture
 
 ```
-Runtime/
-  VRCSim.cs          (374 lines) — Public API facade
-  SimNetwork.cs      (257 lines) — Perspective swap, kinematic, ownership
-  SimReflection.cs   (307 lines) — Cached reflection into ClientSim internals
+VRCSim.cs          — Public API (Init, Spawn, Sit, RunAsPlayer, etc.)
+SimNetwork.cs      — Perspective swapping, ownership, kinematic enforcement
+SimReflection.cs   — Cached reflection into ClientSim private internals
 ```
 
-## Limitations
+All ClientSim access is via reflection (isolated in `SimReflection.cs`) so SDK version breaks are easy to diagnose — you get a clear "Required member not found: X" error.
 
-- **Single Udon VM** — all events fire in one process, can't simulate true per-client execution
-- **Instant events** — no network delay simulation
-- **Reflection-based** — clear error messages if SDK changes break targets
-- **No VR input for bots** — bots act via API, not controllers
+## Known Limitations
+
+1. **Single-process simulation** — All players share one Unity instance. True network latency and packet loss cannot be simulated.
+2. **Cached `_localPlayer` pattern** — UdonSharp scripts that cache `Networking.LocalPlayer` at `Start()` won't see perspective swaps for that cached reference. This is actually correct behavior (the cached ref always points to the real local player).
+3. **ClientSim PlayerObjectStorage** — Rapid spawn/remove cycles can trigger file-lock errors in ClientSim's persistence layer. These are harmless but noisy.
+4. **SetWalkSpeed/SetRunSpeed for remote players** — ClientSim may throw if these are called on non-local players during perspective swaps. The cached `_localPlayer` pattern in most UdonSharp code avoids this.
+
+## Compatibility
+
+- Unity 2022.3.x (VRChat-compatible)
+- VRChat SDK 3.x (Worlds)
+- ClientSim 1.x
+- UdonSharp
+
+## License
+
+MIT
