@@ -96,26 +96,25 @@ namespace VRCSim
                     BindingFlags.NonPublic | BindingFlags.Instance);
 
                 // ── IClientSimStationHandler methods ───────────────
-                // These fire station events through the REAL pipeline,
-                // which calls RunEvent with Networking.LocalPlayer
                 _handlerOnStationEnter = _stationHandlerInterface.GetMethod(
                     "OnStationEnter");
                 _handlerOnStationExit = _stationHandlerInterface.GetMethod(
                     "OnStationExit");
 
                 // ── UdonBehaviour methods ──────────────────────────
-                _ubGetProgramVariable = ResolveMethod(_udonBehaviourType,
-                    "GetProgramVariable", new[] { typeof(string) });
-                _ubSetProgramVariable = ResolveMethod(_udonBehaviourType,
-                    "SetProgramVariable", new[] { typeof(string), typeof(object) });
-                _ubSendCustomEvent = ResolveMethod(_udonBehaviourType,
-                    "SendCustomEvent", new[] { typeof(string) });
+                // These have generic overloads — must filter to non-generic
+                _ubGetProgramVariable = FindNonGenericMethod(
+                    _udonBehaviourType, "GetProgramVariable", 1);
+                _ubSetProgramVariable = FindNonGenericMethod(
+                    _udonBehaviourType, "SetProgramVariable", 2);
+                _ubSendCustomEvent = FindNonGenericMethod(
+                    _udonBehaviourType, "SendCustomEvent", 1);
 
                 // RunEvent: find the overload with (string, params ValueTuple[])
                 foreach (var m in _udonBehaviourType.GetMethods(
                     BindingFlags.Public | BindingFlags.Instance))
                 {
-                    if (m.Name != "RunEvent") continue;
+                    if (m.Name != "RunEvent" || m.IsGenericMethod) continue;
                     var parms = m.GetParameters();
                     if (parms.Length >= 1 && parms[0].ParameterType == typeof(string))
                     {
@@ -151,6 +150,13 @@ namespace VRCSim
                 Debug.LogError($"[VRCSim] {_initError}");
                 return false;
             }
+        }
+
+        /// <summary>Reset init state so Init() can be called again.</summary>
+        public static void Reset()
+        {
+            _initialized = false;
+            _initError = null;
         }
 
         // ── Public Accessors ───────────────────────────────────────
@@ -222,33 +228,20 @@ namespace VRCSim
         public static Component GetStationHelper(GameObject obj) =>
             obj.GetComponent(_stationHelperType);
 
-        /// <summary>
-        /// Fire OnStationEnter through the real event pipeline.
-        /// All IClientSimStationHandler components on the object will
-        /// receive the event. This includes ClientSimUdonHelper, which
-        /// fires RunEvent with Networking.LocalPlayer as the player.
-        /// </summary>
         public static void FireStationEnterHandlers(GameObject stationObj,
             VRCStation station)
         {
             var handlers = stationObj.GetComponents(_stationHandlerInterface);
             foreach (var handler in handlers)
-            {
                 _handlerOnStationEnter.Invoke(handler, new object[] { station });
-            }
         }
 
-        /// <summary>
-        /// Fire OnStationExit through the real event pipeline.
-        /// </summary>
         public static void FireStationExitHandlers(GameObject stationObj,
             VRCStation station)
         {
             var handlers = stationObj.GetComponents(_stationHandlerInterface);
             foreach (var handler in handlers)
-            {
                 _handlerOnStationExit.Invoke(handler, new object[] { station });
-            }
         }
 
         // ── UdonBehaviour ──────────────────────────────────────────
@@ -281,18 +274,18 @@ namespace VRCSim
             return type;
         }
 
-        private static MethodInfo ResolveMethod(Type type, string name,
-            Type[] paramTypes)
+        /// <summary>
+        /// Find a non-generic method by name and parameter count.
+        /// Avoids AmbiguousMatchException from generic overloads.
+        /// </summary>
+        private static MethodInfo FindNonGenericMethod(Type type, string name,
+            int paramCount)
         {
-            var method = type.GetMethod(name, paramTypes);
-            if (method != null) return method;
-
-            // Fallback: match by name and param count
             foreach (var m in type.GetMethods(
                 BindingFlags.Public | BindingFlags.Instance))
             {
                 if (m.Name == name && !m.IsGenericMethod
-                    && m.GetParameters().Length == paramTypes.Length)
+                    && m.GetParameters().Length == paramCount)
                     return m;
             }
             return null;
