@@ -1,98 +1,124 @@
-# VRCSim — VRChat Multiplayer Simulator
+# VRCSim
 
-A Unity package that simulates multiplayer interactions on top of [ClientSim](https://docs.vrchat.com/docs/clientsim), enabling automated testing of VRChat worlds without requiring multiple VRChat clients.
+Multiplayer simulation for VRChat worlds. Test station seating, ownership transfer, synced variables, and master-gated logic without leaving the Unity editor.
 
-## The Problem
+Built on top of [ClientSim](https://docs.vrchat.com/docs/clientsim). Where ClientSim gives you one local player, VRCSim adds remote player bots with perspective swapping — so you can verify what Player 2 actually sees.
 
-ClientSim only simulates a single local player. Testing multiplayer mechanics (station seating, ownership transfer, synced variables, master-gated logic) requires manually launching VRChat with friends. This is slow, unrepeatable, and error-prone.
-
-## The Solution
-
-VRCSim extends ClientSim by:
-- **Spawning remote player bots** via ClientSim's built-in `SpawnRemotePlayer`
-- **Perspective swapping** — temporarily making a bot appear as the local player so Udon code sees the correct `Networking.LocalPlayer`
-- **Station interaction** — sitting bots in `VRCStation` objects through the real ClientSim event pipeline
-- **Ownership enforcement** — validating `ForceKinematicOnRemote` behavior
-- **Synced variable inspection** — reading/writing UdonBehaviour program variables
-
-## Installation
+## Install
 
 Add to your VRChat project's `Packages/manifest.json`:
 
 ```json
-"com.fire.vrcsim": "file:../../VRCPlayerSim"
+{
+  "dependencies": {
+    "com.fire.vrcsim": "file:../../VRCPlayerSim"
+  }
+}
 ```
 
-Or copy the `Runtime/` folder into your project's `Assets/`.
+Adjust the relative path to wherever you cloned this repo. VRCSim requires the VRChat SDK (Worlds) and ClientSim — both should already be in your project.
 
-## Quick Start
+## Usage
+
+All calls are in play mode. Works from Editor scripts, `[MenuItem]` methods, or the Unity MCP `script-execute` tool.
 
 ```csharp
-// In Play Mode (via Editor script, script-execute, or MonoBehaviour)
+// 1. Initialize (once per play session)
 var err = VRCSim.VRCSim.Init();
+
+// 2. Spawn bots
 var alice = VRCSim.VRCSim.SpawnPlayer("Alice");
+var bob   = VRCSim.VRCSim.SpawnPlayer("Bob");
 
-// Sit Alice in a station
-var stationObj = GameObject.Find("MyStation");
-VRCSim.VRCSim.SitInStation(alice, stationObj);
+// 3. Interact — sit Alice in a station
+VRCSim.VRCSim.SitInStation(alice, GameObject.Find("MyStation"));
 
-// Check synced vars
-var val = VRCSim.VRCSim.GetVar(gameManagerObj, "playerCount");
+// 4. Check state
+var phase = VRCSim.VRCSim.GetVar(gameManagerObj, "gamePhase");
 
-// Run code from Alice's perspective
-VRCSim.VRCSim.RunAsPlayer(alice, () => {
-    // Networking.LocalPlayer == alice
-    // alice.isLocal == true
-    // Networking.IsMaster == false
+// 5. Test non-master perspective
+VRCSim.VRCSim.RunAsClient(bob, () => {
+    // Inside here:
+    //   Networking.LocalPlayer == bob
+    //   bob.isLocal == true
+    //   _localPlayer on all UdonBehaviours == bob
+    VRCSim.VRCSim.RunUpdate(gameManagerObj);  // Bob's Update tick
 });
 
-// Cleanup
+// 6. Snapshot & diff synced state
+var before = VRCSim.VRCSim.TakeSnapshot();
+VRCSim.VRCSim.RunUpdate(gameManagerObj);
+var after = VRCSim.VRCSim.TakeSnapshot();
+var changes = VRCSim.VRCSim.DiffSnapshots(before, after);
+
+// 7. Cleanup
 VRCSim.VRCSim.RemoveAllPlayers();
 ```
 
-## API Reference
+### `RunAsPlayer` vs `RunAsClient`
 
-See **[API.md](API.md)** for the full, auto-generated API reference.
+| Method | `Networking.LocalPlayer` | `_localPlayer` (cached in Start) | Use when |
+|--------|-------------------------|----------------------------------|----------|
+| `RunAsPlayer` | Swapped | **Not swapped** | Ownership checks only |
+| `RunAsClient` | Swapped | **Swapped on all UdonBehaviours** | Everything else |
 
-`API.md` is generated from the C# source code by `gen_api.py` and kept in sync automatically via a pre-commit hook. Never edit it manually.
+Most UdonSharp code caches `_localPlayer = Networking.LocalPlayer` in `Start()` and checks `_localPlayer.isMaster`. `RunAsPlayer` doesn't touch those cached refs. **Use `RunAsClient` for almost all multiplayer tests.**
+
+## API
+
+Full reference: **[API.md](API.md)** (auto-generated from source — never edit manually).
+
+Key entry points on `VRCSim.VRCSim`:
+
+| Category | Methods |
+|----------|---------|
+| Lifecycle | `Init`, `SpawnPlayer`, `RemovePlayer`, `RemoveAllPlayers` |
+| Stations | `SitInStation`, `ExitStation` |
+| Perspective | `RunAsPlayer`, `RunAsClient` |
+| Ownership | `SetOwner`, `GetOwner`, `TransferMaster` |
+| Variables | `GetVar`, `SetVar`, `SendEvent`, `GetSyncedVars` |
+| Snapshots | `TakeSnapshot`, `DiffSnapshots` |
+| Simulation | `RunUpdate`, `RunEvent`, `SimulateDeserialization`, `SimulateLateJoinerAll` |
+| Networking | `SendNetworkEvent`, `EnforceKinematic`, `ValidateKinematic` |
+| Reporting | `GetStateReport`, `ValidateVars` |
 
 ## Architecture
 
 ```
-VRCSim.cs          — Public API (Init, Spawn, Sit, RunAsPlayer, etc.)
-SimNetwork.cs      — Perspective swapping, ownership, kinematic enforcement
-SimReflection.cs   — Cached reflection into ClientSim private internals
-SimSnapshot.cs     — Synced state capture and diffing
-gen_api.py         — Auto-generates API.md from source
-.pre-commit-config.yaml   — Regenerates API.md on commit
+Runtime/
+  VRCSim.cs           Public API facade
+  SimNetwork.cs       Perspective swapping, ownership, kinematic enforcement
+  SimReflection.cs    Cached reflection into ClientSim internals
+  SimSnapshot.cs      Synced state capture and diffing
 ```
 
-All ClientSim access is via reflection (isolated in `SimReflection.cs`) so SDK version breaks are easy to diagnose — you get a clear "Required member not found: X" error.
+All ClientSim access is via reflection, isolated in `SimReflection.cs`. If a VRChat SDK update breaks an internal API, you get a clear `Required member not found: X` error at init time — not a cryptic null ref mid-test.
 
 ## Contributing
 
-After cloning, install the pre-commit hook:
-
 ```sh
-pip install pre-commit   # or: uv tool install pre-commit
+git clone https://github.com/deolson/VRCPlayerSim.git
+cd VRCPlayerSim
+pip install pre-commit    # or: uv tool install pre-commit
 pre-commit install
 ```
 
-This ensures `API.md` is automatically regenerated whenever you commit changes to `Runtime/*.cs` or `gen_api.py`. Requires [uv](https://docs.astral.sh/uv/) on PATH.
+The pre-commit hook regenerates `API.md` from source whenever `Runtime/*.cs` or `gen_api.py` changes. CI also checks this on PRs. Requires [uv](https://docs.astral.sh/uv/) on PATH.
 
-## Known Limitations
+## Limitations
 
-1. **Single-process simulation** — All players share one Unity instance. True network latency and packet loss cannot be simulated.
-2. **Cached `_localPlayer` pattern** — UdonSharp scripts that cache `Networking.LocalPlayer` at `Start()` won't see perspective swaps for that cached reference. This is actually correct behavior (the cached ref always points to the real local player).
-3. **ClientSim PlayerObjectStorage** — Rapid spawn/remove cycles can trigger file-lock errors in ClientSim's persistence layer. These are harmless but noisy.
-4. **SetWalkSpeed/SetRunSpeed for remote players** — ClientSim may throw if these are called on non-local players during perspective swaps. The cached `_localPlayer` pattern in most UdonSharp code avoids this.
+- **Single-process** — all players share one Unity instance. No network latency or packet loss simulation.
+- **Cached `_localPlayer`** — `RunAsClient` swaps these, but `RunAsPlayer` does not. This is intentional and matches real VRChat behavior.
+- **`PlayerObjectStorage` file locks** — rapid spawn/remove cycles can trigger harmless ClientSim errors in the console.
 
 ## Compatibility
 
-- Unity 2022.3.x (VRChat-compatible)
-- VRChat SDK 3.x (Worlds)
-- ClientSim 1.x
-- UdonSharp
+| Dependency | Version |
+|-----------|---------|
+| Unity | 2022.3.x |
+| VRChat SDK | 3.x (Worlds) |
+| ClientSim | 1.x |
+| UdonSharp | Required |
 
 ## License
 
