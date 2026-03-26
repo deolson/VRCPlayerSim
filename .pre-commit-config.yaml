@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: gen-api
+        name: Regenerate API.md
+        entry: uv run gen_api.py
+        language: system
+        files: '(Runtime/.*\.cs|gen_api\.py)$'
+        pass_filenames: false

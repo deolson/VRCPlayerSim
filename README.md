@@ -64,20 +64,21 @@ SimNetwork.cs      — Perspective swapping, ownership, kinematic enforcement
 SimReflection.cs   — Cached reflection into ClientSim private internals
 SimSnapshot.cs     — Synced state capture and diffing
 gen_api.py         — Auto-generates API.md from source
-hooks/pre-commit   — Regenerates API.md on commit
+.pre-commit-config.yaml   — Regenerates API.md on commit
 ```
 
 All ClientSim access is via reflection (isolated in `SimReflection.cs`) so SDK version breaks are easy to diagnose — you get a clear "Required member not found: X" error.
 
 ## Contributing
 
-After cloning, run this once to enable the pre-commit hook:
+After cloning, install the pre-commit hook:
 
 ```sh
-git config core.hooksPath hooks
+pip install pre-commit   # or: uv tool install pre-commit
+pre-commit install
 ```
 
-This ensures `API.md` is automatically regenerated whenever you change `Runtime/*.cs` or `gen_api.py`. The hook requires Python 3.10+ (via `uv`, `python`, or `py` on PATH).
+This ensures `API.md` is automatically regenerated whenever you commit changes to `Runtime/*.cs` or `gen_api.py`. Requires [uv](https://docs.astral.sh/uv/) on PATH.
 
 ## Known Limitations
 
