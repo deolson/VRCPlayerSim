@@ -1,2 +1,29 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editors
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln
+*.csproj
+
+# Unity (if someone opens this folder as a project by accident)
+Library/
+Temp/
+Logs/
+obj/
+Build/
+Builds/
+
+# pre-commit cache
+.pre-commit-cache/
