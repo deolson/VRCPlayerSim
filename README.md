@@ -22,20 +22,6 @@ Or add directly to `Packages/manifest.json`:
 "com.fire.vrcsim": "https://github.com/deolson/VRCPlayerSim.git"
 ```
 
-To pin a version:
-
-```json
-"com.fire.vrcsim": "https://github.com/deolson/VRCPlayerSim.git#v0.1.0"
-```
-
-### Local (for contributors)
-
-Clone the repo and reference it by path:
-
-```json
-"com.fire.vrcsim": "file:../path/to/VRCPlayerSim"
-```
-
 ### Requirements
 
 - VRChat SDK 3.x (Worlds)
@@ -174,7 +160,20 @@ pip install pre-commit    # or: uv tool install pre-commit
 pre-commit install
 ```
 
+To use your local clone in a VRChat project, add it by path in `Packages/manifest.json`:
+
+```json
+"com.fire.vrcsim": "file:../path/to/VRCPlayerSim"
+```
+
 The pre-commit hook auto-regenerates `API.md` from source when you change `Runtime/*.cs` or `gen_api.py`. CI checks this on PRs too. Requires [uv](https://docs.astral.sh/uv/) on PATH for the generator script.
+
+## Roadmap
+
+VRCSim is currently API-only. Planned additions:
+
+- **Editor Window** — a Unity panel to spawn bots, manage stations, and inspect synced state without writing code.
+- **Scene View gizmos** — visualize bot positions and ownership in the Scene view.
 
 ## Limitations
 
