@@ -179,17 +179,39 @@ namespace VRCSim
         }
 
         /// <summary>
-        /// Simulate a late joiner scenario: set all synced vars to their
-        /// current values (as if received over the network), then fire
-        /// OnDeserialization. This tests whether the system correctly
-        /// reconstructs state from synced data alone.
+        /// Simulate a late joiner receiving synced state on a specific object.
+        /// Fires OnDeserialization from the given player's perspective.
+        /// If player is null, fires without perspective swap (local player view).
         /// </summary>
-        public static void SimulateLateJoiner(GameObject obj)
+        public static void SimulateLateJoiner(GameObject obj,
+            VRCPlayerApi player = null)
         {
-            // OnDeserialization is what fires when synced data arrives
-            // The synced vars are already set (they're in memory) — we just
-            // need to trigger the reconstruction logic
-            SimulateDeserialization(obj);
+            if (player != null)
+            {
+                RunAsPlayer(player, () => SimulateDeserialization(obj));
+            }
+            else
+            {
+                SimulateDeserialization(obj);
+            }
+        }
+
+        /// <summary>
+        /// Simulate a late joiner on ALL synced UdonBehaviours in the scene.
+        /// </summary>
+        public static void SimulateLateJoinerAll(VRCPlayerApi player = null)
+        {
+            var udons = SimReflection.FindAllUdonBehaviours();
+            foreach (var udon in udons)
+            {
+                var syncedVars = SimReflection.GetSyncedVarNames(udon);
+                if (syncedVars.Count == 0) continue;
+                if (player != null)
+                    RunAsPlayer(player, () =>
+                        SimReflection.SendCustomEvent(udon, "OnDeserialization"));
+                else
+                    SimReflection.SendCustomEvent(udon, "OnDeserialization");
+            }
         }
 
         // ── Ownership Helpers ──────────────────────────────────────
@@ -222,6 +244,67 @@ namespace VRCSim
             // If the local player isn't the owner, any write to a synced var
             // would be local-only in real VRChat
             return owner.playerId == localPlayer.playerId;
+        }
+
+        // ── Master Transfer ──────────────────────────────────
+
+        /// <summary>
+        /// Simulate master transfer to a new player.
+        /// Changes the master ID and fires _onNewMaster on all UdonBehaviours.
+        /// </summary>
+        public static void SimulateMasterTransfer(VRCPlayerApi newMaster)
+        {
+            var pm = SimReflection.GetPlayerManager();
+            if (pm == null)
+                throw new InvalidOperationException(
+                    "[VRCSim] ClientSim not running");
+
+            int oldMasterId = SimReflection.GetMasterId(pm);
+            SimReflection.SetMasterId(pm, newMaster.playerId);
+
+            Debug.Log($"[VRCSim] Master transfer: {oldMasterId} → "
+                + $"{newMaster.playerId} ({newMaster.displayName})");
+
+            // Fire _onNewMaster on all UdonBehaviours
+            var udons = SimReflection.FindAllUdonBehaviours();
+            foreach (var udon in udons)
+                SimReflection.RunEvent(udon, "_onNewMaster");
+        }
+
+        // ── Network Event Routing ─────────────────────────────
+
+        /// <summary>
+        /// Simulate SendCustomNetworkEvent routing.
+        /// All: fires event on the UdonBehaviour (all clients see same instance).
+        /// Owner: only fires if the current perspective is the owner.
+        /// </summary>
+        public static bool SimulateNetworkEvent(
+            VRC.SDKBase.NetworkEventTarget target,
+            GameObject obj, string eventName)
+        {
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            if (udon == null) return false;
+
+            if (target == NetworkEventTarget.All)
+            {
+                SimReflection.SendCustomEvent(udon, eventName);
+                return true;
+            }
+
+            // Owner target — only fire if local player is owner
+            var owner = Networking.GetOwner(obj);
+            var local = Networking.LocalPlayer;
+            if (owner != null && local != null
+                && owner.playerId == local.playerId)
+            {
+                SimReflection.SendCustomEvent(udon, eventName);
+                return true;
+            }
+
+            Debug.Log($"[VRCSim] NetworkEvent({target}, {eventName}) "
+                + $"skipped — local={local?.displayName}, "
+                + $"owner={owner?.displayName}");
+            return false;
         }
 
         // ── Types ──────────────────────────────────────────────────

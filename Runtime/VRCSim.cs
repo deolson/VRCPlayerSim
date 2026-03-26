@@ -298,8 +298,30 @@ namespace VRCSim
         public static void SimulateDeserialization(GameObject obj) =>
             SimNetwork.SimulateDeserialization(obj);
 
-        public static void SimulateLateJoiner(GameObject obj) =>
-            SimNetwork.SimulateLateJoiner(obj);
+        public static void SimulateLateJoiner(GameObject obj,
+            VRCPlayerApi player = null) =>
+            SimNetwork.SimulateLateJoiner(obj, player);
+
+        /// <summary>
+        /// Simulate a late joiner on ALL synced objects in the scene.
+        /// </summary>
+        public static void SimulateLateJoinerAll(VRCPlayerApi player = null) =>
+            SimNetwork.SimulateLateJoinerAll(player);
+
+        /// <summary>
+        /// Simulate master transfer. Changes master and fires _onNewMaster.
+        /// </summary>
+        public static void TransferMaster(VRCPlayerApi newMaster) =>
+            SimNetwork.SimulateMasterTransfer(newMaster);
+
+        /// <summary>
+        /// Simulate SendCustomNetworkEvent routing.
+        /// Returns true if the event fired, false if skipped (e.g. Owner target
+        /// but caller is not owner).
+        /// </summary>
+        public static bool SendNetworkEvent(NetworkEventTarget target,
+            GameObject obj, string eventName) =>
+            SimNetwork.SimulateNetworkEvent(target, obj, eventName);
 
         // ── Udon Variable Access ───────────────────────────────────
 
@@ -322,6 +344,54 @@ namespace VRCSim
         }
 
         /// <summary>
+        /// Get the names of all [UdonSynced] variables on a GameObject.
+        /// </summary>
+        public static List<string> GetSyncedVarNames(GameObject obj)
+        {
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            return udon != null
+                ? SimReflection.GetSyncedVarNames(udon)
+                : new List<string>();
+        }
+
+        /// <summary>
+        /// Get all synced variables and their current values.
+        /// </summary>
+        public static Dictionary<string, object> GetSyncedVars(GameObject obj)
+        {
+            var result = new Dictionary<string, object>();
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            if (udon == null) return result;
+            foreach (var name in SimReflection.GetSyncedVarNames(udon))
+            {
+                if (SimReflection.TryGetProgramVariable(udon, name, out var val))
+                    result[name] = val;
+            }
+            return result;
+        }
+
+        // ── Snapshots ─────────────────────────────────────────
+
+        /// <summary>
+        /// Capture the current synced state of all UdonBehaviours.
+        /// </summary>
+        public static SimSnapshot TakeSnapshot() =>
+            SimSnapshot.Take();
+
+        /// <summary>
+        /// Capture synced state for a single GameObject.
+        /// </summary>
+        public static SimSnapshot TakeSnapshot(GameObject obj) =>
+            SimSnapshot.TakeFor(obj);
+
+        /// <summary>
+        /// Diff two snapshots and return the changes.
+        /// </summary>
+        public static List<SimSnapshot.SyncChange> DiffSnapshots(
+            SimSnapshot before, SimSnapshot after) =>
+            SimSnapshot.Diff(before, after);
+
+        /// <summary>
         /// Run an Udon program event through the UdonBehaviour program.
         /// Events execute through program variable storage, NOT MonoBehaviour fields.
         /// Critical: station events write to program heap, so game logic methods
@@ -330,10 +400,7 @@ namespace VRCSim
         public static void RunEvent(GameObject obj, string eventName)
         {
             var udon = SimReflection.GetUdonBehaviour(obj);
-            if (udon == null) return;
-            var runEvent = udon.GetType().GetMethod("RunEvent",
-                new[] { typeof(string) });
-            runEvent?.Invoke(udon, new object[] { eventName });
+            if (udon != null) SimReflection.RunEvent(udon, eventName);
         }
 
         /// <summary>
@@ -487,3 +554,4 @@ namespace VRCSim
         }
     }
 }
+"// test"  

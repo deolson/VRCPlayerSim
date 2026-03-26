@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using VRC.SDKBase;
@@ -41,6 +42,9 @@ namespace VRCSim
         private static MethodInfo _ubTryGetProgramVariable;
         private static MethodInfo _ubSetProgramVariable;
         private static MethodInfo _ubSendCustomEvent;
+        private static PropertyInfo _ubSyncMetadataTable;
+        private static MethodInfo _syncTableGetAll;
+        private static PropertyInfo _syncMetaName;
 
         // ── VRCPlayerApi ───────────────────────────────────────────
         private static FieldInfo _playerIsLocal;
@@ -124,6 +128,20 @@ namespace VRCSim
                         _ubRunEvent = m;
                         break;
                     }
+                }
+
+                // ── Sync metadata (best-effort — not fatal if missing) ──
+                _ubSyncMetadataTable = _udonBehaviourType.GetProperty(
+                    "SyncMetadataTable",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (_ubSyncMetadataTable != null)
+                {
+                    var tableType = _ubSyncMetadataTable.PropertyType;
+                    _syncTableGetAll = tableType.GetMethod("GetAllSyncMetadata");
+                    var metaType = ResolveType(
+                        "VRC.Udon.Common.UdonSyncMetadata, VRC.Udon.Common");
+                    _syncMetaName = metaType.GetProperty("Name",
+                        BindingFlags.Public | BindingFlags.Instance);
                 }
 
                 // ── VRCPlayerApi ───────────────────────────────────
@@ -279,6 +297,51 @@ namespace VRCSim
 
         public static Component GetUdonBehaviour(GameObject obj) =>
             obj.GetComponent(_udonBehaviourType);
+
+        /// <summary>
+        /// Execute an Udon program event (e.g. "_update", "_onDeserialization").
+        /// Unlike SendCustomEvent, this goes through the program runner.
+        /// </summary>
+        public static void RunEvent(Component udon, string eventName)
+        {
+            _ubRunEvent?.Invoke(udon, new object[] { eventName });
+        }
+
+        /// <summary>
+        /// Get the names of all [UdonSynced] variables on an UdonBehaviour.
+        /// Returns empty list if sync metadata is unavailable.
+        /// </summary>
+        public static List<string> GetSyncedVarNames(Component udon)
+        {
+            var names = new List<string>();
+            if (_ubSyncMetadataTable == null || _syncTableGetAll == null)
+                return names;
+            var table = _ubSyncMetadataTable.GetValue(udon);
+            if (table == null) return names;
+            var allMeta = _syncTableGetAll.Invoke(table, null)
+                as System.Collections.IEnumerable;
+            if (allMeta == null) return names;
+            foreach (var meta in allMeta)
+            {
+                var name = _syncMetaName?.GetValue(meta) as string;
+                if (name != null) names.Add(name);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// Find ALL UdonBehaviours in the scene (active only).
+        /// </summary>
+        public static Component[] FindAllUdonBehaviours()
+        {
+#pragma warning disable CS0618
+            var objs = UnityEngine.Object.FindObjectsOfType(_udonBehaviourType);
+#pragma warning restore CS0618
+            var result = new Component[objs.Length];
+            for (int i = 0; i < objs.Length; i++)
+                result[i] = (Component)objs[i];
+            return result;
+        }
 
         // ── Helpers ────────────────────────────────────────────────
 
