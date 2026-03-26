@@ -1,0 +1,26 @@
+name: Check API.md is up to date
+
+on:
+  pull_request:
+    paths:
+      - "Runtime/*.cs"
+      - "gen_api.py"
+      - "API.md"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Regenerate API.md
+        run: uv run gen_api.py
+
+      - name: Check for drift
+        run: |
+          if ! git diff --exit-code API.md; then
+            echo "::error::API.md is out of date. Run 'uv run gen_api.py' and commit the result."
+            exit 1
+          fi
