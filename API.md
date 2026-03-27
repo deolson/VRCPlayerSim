@@ -12,14 +12,14 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 | Signature | Description |
 |-----------|-------------|
 | `string Init()` | Initialize the simulator. Call once per play mode session. Returns error string or null on success. |
-| `bool IsReady` | — |
+| `bool IsReady` | True when Init() has succeeded and the simulator is operational. |
 
 ### Player Lifecycle
 
 | Signature | Description |
 |-----------|-------------|
 | `VRCPlayerApi SpawnPlayer(string name)` | Spawn a remote player bot. Fires OnPlayerJoined on all UdonBehaviours. Returns the VRCPlayerApi for the new player. |
-| `void RemovePlayer(VRCPlayerApi player)` | Remove a bot player. Fires OnPlayerLeft on all UdonBehaviours. |
+| `void RemovePlayer(VRCPlayerApi player)` | Remove a bot player. Fires OnPlayerLeft on all UdonBehaviours. If the removed player was master, auto-transfers master to the next player and fires _onNewMaster — matching real VRChat behavior. |
 | `void RemoveAllPlayers()` | Remove all bots spawned in this session. |
 | `List<VRCPlayerApi> GetBots()` | Get all bots. |
 | `VRCPlayerApi GetBot(string name)` | Get a bot by name (partial match). |
@@ -48,17 +48,17 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 
 | Signature | Description |
 |-----------|-------------|
-| `void SetOwner(VRCPlayerApi player, GameObject obj)` | — |
-| `VRCPlayerApi GetOwner(GameObject obj)` | — |
+| `void SetOwner(VRCPlayerApi player, GameObject obj)` | Transfer ownership of a GameObject to a player and enforce kinematic rules. |
+| `VRCPlayerApi GetOwner(GameObject obj)` | Get the current owner of a GameObject. |
 
 ### Networking Rule Enforcement
 
 | Signature | Description |
 |-----------|-------------|
-| `void EnforceKinematic(GameObject obj)` | — |
-| `List<SimNetwork.KinematicIssue> ValidateKinematic()` | — |
-| `void SimulateDeserialization(GameObject obj)` | — |
-| `void SimulateLateJoiner(GameObject obj, VRCPlayerApi player = null)` | — |
+| `void EnforceKinematic(GameObject obj)` | Enforce VRChat's ForceKinematicOnRemote rule on a VRCObjectSync GameObject. |
+| `List<SimNetwork.KinematicIssue> ValidateKinematic()` | Check all VRCObjectSync objects for incorrect kinematic state. Read-only. |
+| `void SimulateDeserialization(GameObject obj)` | Fire OnDeserialization on a GameObject's UdonBehaviours. |
+| `void SimulateLateJoiner(GameObject obj, VRCPlayerApi player = null)` | Simulate a late joiner receiving synced state on one object. |
 | `void SimulateLateJoinerAll(VRCPlayerApi player = null)` | Simulate a late joiner on ALL synced objects in the scene. |
 | `void TransferMaster(VRCPlayerApi newMaster)` | Simulate master transfer. Changes master and fires _onNewMaster. |
 | `bool SendNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget target, GameObject obj, string eventName)` | Simulate SendCustomNetworkEvent routing. Returns true if the event fired, false if skipped (e.g. Owner target but caller is not owner). |
@@ -67,9 +67,9 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 
 | Signature | Description |
 |-----------|-------------|
-| `object GetVar(GameObject obj, string varName)` | — |
-| `void SetVar(GameObject obj, string varName, object value)` | — |
-| `void SendEvent(GameObject obj, string eventName)` | — |
+| `object GetVar(GameObject obj, string varName)` | Read an Udon program variable by name from the first UdonBehaviour on a GameObject. |
+| `void SetVar(GameObject obj, string varName, object value)` | Write an Udon program variable by name on the first UdonBehaviour on a GameObject. |
+| `void SendEvent(GameObject obj, string eventName)` | Send a custom event to the first UdonBehaviour on a GameObject. |
 | `List<string> GetSyncedVarNames(GameObject obj)` | Get the names of all [UdonSynced] variables on a GameObject. |
 | `Dictionary<string, object> GetSyncedVars(GameObject obj)` | Get all synced variables and their current values. |
 
@@ -82,13 +82,15 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 | `List<SimSnapshot.SyncChange> DiffSnapshots(SimSnapshot before, SimSnapshot after)` | Diff two snapshots and return the changes. |
 | `void RunEvent(GameObject obj, string eventName)` | Run an Udon program event through the UdonBehaviour program. Events execute through program variable storage, NOT MonoBehaviour fields. Critical: station events write to program heap, so game logic methods must be called via RunEvent to see the correct state. |
 | `void RunUpdate(GameObject obj)` | Tick one frame of the UdonBehaviour's Update loop. |
+| `void RunUpdate(GameObject obj, int frames)` | Tick multiple frames of the UdonBehaviour's Update loop. Equivalent to calling RunUpdate in a loop, but reads cleaner in tests. |
 
 ### Validation & Reporting
 
 | Signature | Description |
 |-----------|-------------|
-| `string GetStateReport()` | — |
+| `string GetStateReport()` | Build a human-readable report of all players, ownership, and kinematic issues. |
 | `string ValidateVars(GameObject obj, params (string varName, object expected)[] expectations)` | Validate expected synced var values on a GameObject. |
+| `bool CheckVars(GameObject obj, params (string varName, object expected)[] expectations)` | Validate expected synced var values and return true if all match. Cheaper than the string version when you just need pass/fail. |
 
 ## `VRCSim.SimNetwork`
 
@@ -120,7 +122,7 @@ Simulates VRChat networking rules that ClientSim skips: - Perspective swapping (
 
 | Signature | Description |
 |-----------|-------------|
-| `void TransferOwnership(VRCPlayerApi newOwner, GameObject obj)` | Transfer ownership and enforce kinematic rules. This is what should happen in real VRChat but ClientSim skips the kinematic part. |
+| `void TransferOwnership(VRCPlayerApi newOwner, GameObject obj)` | Transfer ownership with full VRChat event flow: 1. Fires OnOwnershipRequest on the UdonBehaviour (if it returns false, transfer is denied). 2. Calls Networking.SetOwner to change ownership. 3. Fires OnOwnershipTransferred on the UdonBehaviour. 4. Enforces ForceKinematicOnRemote rules. |
 | `bool ValidateOwnerWrite(GameObject obj, string varName)` | Validate that a synced variable was written by the owner. In real VRChat, non-owner writes to synced vars are local-only and get overwritten on next deserialization. |
 
 ### Master Transfer
@@ -156,57 +158,59 @@ Cached reflection accessors for ClientSim internals. Isolated here so SDK versio
 
 | Signature | Description |
 |-----------|-------------|
-| `bool IsReady` | — |
-| `string InitError` | — |
-| `bool Initialize()` | — |
+| `bool IsReady` | True when reflection initialization completed without errors. |
+| `string InitError` | Error message from initialization, or null on success. |
+| `bool Initialize()` | Resolve all reflection targets. Returns true on success. |
 | `void Reset()` | Reset init state so Init() can be called again. |
-| `bool GetIsLocal(VRCPlayerApi player)` | — |
-| `void SetIsLocal(VRCPlayerApi player, bool value)` | — |
+| `bool GetIsLocal(VRCPlayerApi player)` | Read the isLocal field on a VRCPlayerApi. |
+| `void SetIsLocal(VRCPlayerApi player, bool value)` | Write the isLocal field on a VRCPlayerApi. |
 
 ### Public Accessors
 
 | Signature | Description |
 |-----------|-------------|
-| `void SpawnRemotePlayer(string name)` | — |
-| `void RemovePlayer(VRCPlayerApi player)` | — |
-| `object GetPlayerManager()` | — |
-| `object GetClientSimInstance()` | — |
+| `void SpawnRemotePlayer(string name)` | Call ClientSimMain.SpawnRemotePlayer to create a new bot. |
+| `void RemovePlayer(VRCPlayerApi player)` | Call ClientSimMain.RemovePlayer to destroy a bot. |
+| `object GetPlayerManager()` | Get the ClientSimPlayerManager instance via reflection. |
+| `object GetClientSimInstance()` | Get the ClientSimMain singleton instance. |
 
 ### PlayerManager State
 
 | Signature | Description |
 |-----------|-------------|
-| `int GetMasterId(object pm)` | — |
-| `void SetMasterId(object pm, int id)` | — |
-| `int GetLocalPlayerId(object pm)` | — |
-| `void SetLocalPlayerId(object pm, int id)` | — |
-| `VRCPlayerApi GetLocalPlayer(object pm)` | — |
-| `void SetLocalPlayer(object pm, VRCPlayerApi player)` | — |
+| `int GetMasterId(object pm)` | Read the master player ID from the PlayerManager. |
+| `void SetMasterId(object pm, int id)` | Write the master player ID on the PlayerManager. |
+| `int GetLocalPlayerId(object pm)` | Read the local player ID from the PlayerManager. |
+| `void SetLocalPlayerId(object pm, int id)` | Write the local player ID on the PlayerManager. |
+| `VRCPlayerApi GetLocalPlayer(object pm)` | Read the local player reference from the PlayerManager. |
+| `void SetLocalPlayer(object pm, VRCPlayerApi player)` | Write the local player reference on the PlayerManager. |
 
 ### Station Helper
 
 | Signature | Description |
 |-----------|-------------|
-| `VRCPlayerApi GetStationUser(Component helper)` | — |
-| `void SetStationUser(Component helper, VRCPlayerApi player)` | — |
-| `Component GetStationHelper(GameObject obj)` | — |
-| `void FireStationEnterHandlers(GameObject stationObj, VRCStation station)` | — |
-| `void FireStationExitHandlers(GameObject stationObj, VRCStation station)` | — |
+| `VRCPlayerApi GetStationUser(Component helper)` | Read the _usingPlayer field from a ClientSimStationHelper. |
+| `void SetStationUser(Component helper, VRCPlayerApi player)` | Write the _usingPlayer field on a ClientSimStationHelper. |
+| `Component GetStationHelper(GameObject obj)` | Get the ClientSimStationHelper component on a station GameObject. |
+| `void FireStationEnterHandlers(GameObject stationObj, VRCStation station)` | Invoke OnStationEnter on all IClientSimStationHandler components. |
+| `void FireStationExitHandlers(GameObject stationObj, VRCStation station)` | Invoke OnStationExit on all IClientSimStationHandler components. |
 
 ### UdonBehaviour
 
 | Signature | Description |
 |-----------|-------------|
-| `Type UdonBehaviourType` | — |
-| `object GetProgramVariable(Component udon, string name)` | — |
+| `Type UdonBehaviourType` | The resolved System.Type for VRC.Udon.UdonBehaviour. |
+| `object GetProgramVariable(Component udon, string name)` | Read an Udon program variable. Throws if the variable doesn't exist. |
 | `bool TryGetProgramVariable(Component udon, string name, out object value)` | Check if variable exists and get its value without logging errors. Returns true if the variable exists, false otherwise. |
-| `void SetProgramVariable(Component udon, string name, object value)` | — |
-| `void SendCustomEvent(Component udon, string eventName)` | — |
-| `Component[] GetUdonBehaviours(GameObject obj)` | — |
-| `Component GetUdonBehaviour(GameObject obj)` | — |
+| `void SetProgramVariable(Component udon, string name, object value)` | Write an Udon program variable by name. |
+| `void SendCustomEvent(Component udon, string eventName)` | Send a custom event to an UdonBehaviour (calls the named method). |
+| `Component[] GetUdonBehaviours(GameObject obj)` | Get all UdonBehaviour components on a GameObject. |
+| `Component GetUdonBehaviour(GameObject obj)` | Get the first UdonBehaviour component on a GameObject. |
 | `void RunEvent(Component udon, string eventName)` | Execute an Udon program event (e.g. "_update", "_onDeserialization"). Unlike SendCustomEvent, this goes through the program runner. |
 | `List<string> GetSyncedVarNames(Component udon)` | Get the names of all [UdonSynced] variables on an UdonBehaviour. Returns empty list if sync metadata is unavailable. |
 | `Component[] FindAllUdonBehaviours()` | Find ALL UdonBehaviours in the scene (active only). |
+| `bool FireOwnershipRequest(Component udon, VRCPlayerApi requestingPlayer, VRCPlayerApi requestedOwner)` | Fire OnOwnershipRequest on an UdonBehaviour. Returns true if transfer is allowed (or if the event doesn't exist). Uses Udon's standard event parameter symbols: onOwnershipRequestRequester, onOwnershipRequestNewOwner. |
+| `void FireOwnershipTransferred(Component udon, VRCPlayerApi newOwner)` | Fire OnOwnershipTransferred on an UdonBehaviour. In VRChat, this fires after ownership has changed. |
 
 ## `VRCSim.SimSnapshot`
 

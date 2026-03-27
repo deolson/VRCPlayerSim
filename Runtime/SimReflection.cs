@@ -52,9 +52,12 @@ namespace VRCSim
         private static bool _initialized;
         private static string _initError;
 
+        /// <summary>True when reflection initialization completed without errors.</summary>
         public static bool IsReady => _initialized && _initError == null;
+        /// <summary>Error message from initialization, or null on success.</summary>
         public static string InitError => _initError;
 
+        /// <summary>Resolve all reflection targets. Returns true on success.</summary>
         public static bool Initialize()
         {
             if (_initialized) return _initError == null;
@@ -182,16 +185,19 @@ namespace VRCSim
 
         // ── Public Accessors ───────────────────────────────────────
 
+        /// <summary>Call ClientSimMain.SpawnRemotePlayer to create a new bot.</summary>
         public static void SpawnRemotePlayer(string name)
         {
             _spawnRemotePlayer.Invoke(null, new object[] { name });
         }
 
+        /// <summary>Call ClientSimMain.RemovePlayer to destroy a bot.</summary>
         public static void RemovePlayer(VRCPlayerApi player)
         {
             _removePlayer.Invoke(null, new object[] { player });
         }
 
+        /// <summary>Get the ClientSimPlayerManager instance via reflection.</summary>
         public static object GetPlayerManager()
         {
             var instance = GetClientSimInstance();
@@ -202,6 +208,7 @@ namespace VRCSim
             return pmField?.GetValue(instance);
         }
 
+        /// <summary>Get the ClientSimMain singleton instance.</summary>
         public static object GetClientSimInstance()
         {
             var instanceField = _clientSimMainType.GetField(
@@ -212,43 +219,55 @@ namespace VRCSim
 
         // ── PlayerManager State ────────────────────────────────────
 
+        /// <summary>Read the master player ID from the PlayerManager.</summary>
         public static int GetMasterId(object pm) =>
             (int)_pmMasterId.GetValue(pm);
 
+        /// <summary>Write the master player ID on the PlayerManager.</summary>
         public static void SetMasterId(object pm, int id) =>
             _pmMasterId.SetValue(pm, id);
 
+        /// <summary>Read the local player ID from the PlayerManager.</summary>
         public static int GetLocalPlayerId(object pm) =>
             (int)_pmLocalPlayerId.GetValue(pm);
 
+        /// <summary>Write the local player ID on the PlayerManager.</summary>
         public static void SetLocalPlayerId(object pm, int id) =>
             _pmLocalPlayerId.SetValue(pm, id);
 
+        /// <summary>Read the local player reference from the PlayerManager.</summary>
         public static VRCPlayerApi GetLocalPlayer(object pm) =>
             (VRCPlayerApi)_pmLocalPlayer.GetValue(pm);
 
+        /// <summary>Write the local player reference on the PlayerManager.</summary>
         public static void SetLocalPlayer(object pm, VRCPlayerApi player) =>
             _pmLocalPlayer.SetValue(pm, player);
 
         // ── VRCPlayerApi ───────────────────────────────────────────
 
+        /// <summary>Read the isLocal field on a VRCPlayerApi.</summary>
         public static bool GetIsLocal(VRCPlayerApi player) =>
             (bool)_playerIsLocal.GetValue(player);
 
+        /// <summary>Write the isLocal field on a VRCPlayerApi.</summary>
         public static void SetIsLocal(VRCPlayerApi player, bool value) =>
             _playerIsLocal.SetValue(player, value);
 
         // ── Station Helper ─────────────────────────────────────────
 
+        /// <summary>Read the _usingPlayer field from a ClientSimStationHelper.</summary>
         public static VRCPlayerApi GetStationUser(Component helper) =>
             (VRCPlayerApi)_shUsingPlayer.GetValue(helper);
 
+        /// <summary>Write the _usingPlayer field on a ClientSimStationHelper.</summary>
         public static void SetStationUser(Component helper, VRCPlayerApi player) =>
             _shUsingPlayer.SetValue(helper, player);
 
+        /// <summary>Get the ClientSimStationHelper component on a station GameObject.</summary>
         public static Component GetStationHelper(GameObject obj) =>
             obj.GetComponent(_stationHelperType);
 
+        /// <summary>Invoke OnStationEnter on all IClientSimStationHandler components.</summary>
         public static void FireStationEnterHandlers(GameObject stationObj,
             VRCStation station)
         {
@@ -257,6 +276,7 @@ namespace VRCSim
                 _handlerOnStationEnter.Invoke(handler, new object[] { station });
         }
 
+        /// <summary>Invoke OnStationExit on all IClientSimStationHandler components.</summary>
         public static void FireStationExitHandlers(GameObject stationObj,
             VRCStation station)
         {
@@ -267,8 +287,10 @@ namespace VRCSim
 
         // ── UdonBehaviour ──────────────────────────────────────────
 
+        /// <summary>The resolved System.Type for VRC.Udon.UdonBehaviour.</summary>
         public static Type UdonBehaviourType => _udonBehaviourType;
 
+        /// <summary>Read an Udon program variable. Throws if the variable doesn't exist.</summary>
         public static object GetProgramVariable(Component udon, string name) =>
             _ubGetProgramVariable.Invoke(udon, new object[] { name });
 
@@ -285,16 +307,20 @@ namespace VRCSim
             return result;
         }
 
+        /// <summary>Write an Udon program variable by name.</summary>
         public static void SetProgramVariable(Component udon, string name,
             object value) =>
             _ubSetProgramVariable.Invoke(udon, new object[] { name, value });
 
+        /// <summary>Send a custom event to an UdonBehaviour (calls the named method).</summary>
         public static void SendCustomEvent(Component udon, string eventName) =>
             _ubSendCustomEvent.Invoke(udon, new object[] { eventName });
 
+        /// <summary>Get all UdonBehaviour components on a GameObject.</summary>
         public static Component[] GetUdonBehaviours(GameObject obj) =>
             obj.GetComponents(_udonBehaviourType);
 
+        /// <summary>Get the first UdonBehaviour component on a GameObject.</summary>
         public static Component GetUdonBehaviour(GameObject obj) =>
             obj.GetComponent(_udonBehaviourType);
 
@@ -341,6 +367,52 @@ namespace VRCSim
             for (int i = 0; i < objs.Length; i++)
                 result[i] = (Component)objs[i];
             return result;
+        }
+
+        /// <summary>
+        /// Fire OnOwnershipRequest on an UdonBehaviour.
+        /// Returns true if transfer is allowed (or if the event doesn't exist).
+        /// Uses Udon's standard event parameter symbols:
+        ///   onOwnershipRequestRequester, onOwnershipRequestNewOwner.
+        /// </summary>
+        public static bool FireOwnershipRequest(Component udon,
+            VRCPlayerApi requestingPlayer, VRCPlayerApi requestedOwner)
+        {
+            try
+            {
+                // Return-value symbol exists only if the script overrides OnOwnershipRequest
+                if (!TryGetProgramVariable(udon,
+                        "__0__onOwnershipRequest__ret", out _))
+                    return true;
+
+                SetProgramVariable(udon,
+                    "onOwnershipRequestRequester", requestingPlayer);
+                SetProgramVariable(udon,
+                    "onOwnershipRequestNewOwner", requestedOwner);
+                RunEvent(udon, "_onOwnershipRequest");
+
+                var result = GetProgramVariable(udon,
+                    "__0__onOwnershipRequest__ret");
+                return result is bool b ? b : true;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Fire OnOwnershipTransferred on an UdonBehaviour.
+        /// In VRChat, this fires after ownership has changed.
+        /// </summary>
+        public static void FireOwnershipTransferred(Component udon,
+            VRCPlayerApi newOwner)
+        {
+            try
+            {
+                RunEvent(udon, "_onOwnershipTransferred");
+            }
+            catch { /* Event may not exist on this UdonBehaviour */ }
         }
 
         // ── Helpers ────────────────────────────────────────────────

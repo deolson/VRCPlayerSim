@@ -49,6 +49,7 @@ namespace VRCSim
             return null;
         }
 
+        /// <summary>True when Init() has succeeded and the simulator is operational.</summary>
         public static bool IsReady => _ready && SimReflection.IsReady;
 
         // ── Player Lifecycle ───────────────────────────────────────
@@ -79,14 +80,35 @@ namespace VRCSim
 
         /// <summary>
         /// Remove a bot player. Fires OnPlayerLeft on all UdonBehaviours.
+        /// If the removed player was master, auto-transfers master to the
+        /// next player and fires _onNewMaster — matching real VRChat behavior.
         /// </summary>
         public static void RemovePlayer(VRCPlayerApi player)
         {
             EnsureReady();
+            bool wasMaster = player.isMaster;
+            int removedId = player.playerId;
             _bots.Remove(player);
             ClearStationsForPlayer(player);
             SimReflection.RemovePlayer(player);
             Debug.Log($"[VRCSim] Removed: {player.displayName}");
+
+            if (wasMaster && VRCPlayerApi.AllPlayers.Count > 0)
+            {
+                // VRChat assigns master to the lowest-ID remaining player
+                VRCPlayerApi newMaster = null;
+                int lowestId = int.MaxValue;
+                foreach (var p in VRCPlayerApi.AllPlayers)
+                {
+                    if (p.playerId < lowestId)
+                    {
+                        lowestId = p.playerId;
+                        newMaster = p;
+                    }
+                }
+                if (newMaster != null)
+                    SimNetwork.SimulateMasterTransfer(newMaster);
+            }
         }
 
         /// <summary>
@@ -279,25 +301,51 @@ namespace VRCSim
             }
         }
 
+        /// <summary>
+        /// RunAsClient with a return value.
+        /// var phase = VRCSim.RunAsClient(bob, () => VRCSim.GetVar(gm, "gamePhase"));
+        /// </summary>
+        public static T RunAsClient<T>(VRCPlayerApi player, Func<T> func)
+        {
+            EnsureReady();
+            var swapped = SwapLocalPlayerRefs(player);
+            try
+            {
+                T result = default;
+                SimNetwork.RunAsPlayer(player, () => { result = func(); });
+                return result;
+            }
+            finally
+            {
+                RestoreLocalPlayerRefs(swapped);
+            }
+        }
+
         // ── Ownership ──────────────────────────────────────────────
 
+        /// <summary>Transfer ownership of a GameObject to a player and enforce kinematic rules.</summary>
         public static void SetOwner(VRCPlayerApi player, GameObject obj) =>
             SimNetwork.TransferOwnership(player, obj);
 
+        /// <summary>Get the current owner of a GameObject.</summary>
         public static VRCPlayerApi GetOwner(GameObject obj) =>
             Networking.GetOwner(obj);
 
         // ── Networking Rule Enforcement ────────────────────────────
 
+        /// <summary>Enforce VRChat's ForceKinematicOnRemote rule on a VRCObjectSync GameObject.</summary>
         public static void EnforceKinematic(GameObject obj) =>
             SimNetwork.EnforceKinematicOnRemote(obj);
 
+        /// <summary>Check all VRCObjectSync objects for incorrect kinematic state. Read-only.</summary>
         public static List<SimNetwork.KinematicIssue> ValidateKinematic() =>
             SimNetwork.ValidateKinematicState();
 
+        /// <summary>Fire OnDeserialization on a GameObject's UdonBehaviours.</summary>
         public static void SimulateDeserialization(GameObject obj) =>
             SimNetwork.SimulateDeserialization(obj);
 
+        /// <summary>Simulate a late joiner receiving synced state on one object.</summary>
         public static void SimulateLateJoiner(GameObject obj,
             VRCPlayerApi player = null) =>
             SimNetwork.SimulateLateJoiner(obj, player);
@@ -325,18 +373,21 @@ namespace VRCSim
 
         // ── Udon Variable Access ───────────────────────────────────
 
+        /// <summary>Read an Udon program variable by name from the first UdonBehaviour on a GameObject.</summary>
         public static object GetVar(GameObject obj, string varName)
         {
             var udon = SimReflection.GetUdonBehaviour(obj);
             return udon != null ? SimReflection.GetProgramVariable(udon, varName) : null;
         }
 
+        /// <summary>Write an Udon program variable by name on the first UdonBehaviour on a GameObject.</summary>
         public static void SetVar(GameObject obj, string varName, object value)
         {
             var udon = SimReflection.GetUdonBehaviour(obj);
             if (udon != null) SimReflection.SetProgramVariable(udon, varName, value);
         }
 
+        /// <summary>Send a custom event to the first UdonBehaviour on a GameObject.</summary>
         public static void SendEvent(GameObject obj, string eventName)
         {
             var udon = SimReflection.GetUdonBehaviour(obj);
@@ -408,8 +459,21 @@ namespace VRCSim
         /// </summary>
         public static void RunUpdate(GameObject obj) => RunEvent(obj, "_update");
 
+        /// <summary>
+        /// Tick multiple frames of the UdonBehaviour's Update loop.
+        /// Equivalent to calling RunUpdate in a loop, but reads cleaner in tests.
+        /// </summary>
+        public static void RunUpdate(GameObject obj, int frames)
+        {
+            for (int i = 0; i < frames; i++)
+                RunEvent(obj, "_update");
+        }
+
         // ── Validation & Reporting ─────────────────────────────────
 
+        /// <summary>
+        /// Build a human-readable report of all players, ownership, and kinematic issues.
+        /// </summary>
         public static string GetStateReport()
         {
             var sb = new StringBuilder();
@@ -482,6 +546,23 @@ namespace VRCSim
 
             sb.AppendLine(allPass ? "  RESULT: ALL PASS" : "  RESULT: FAILURES DETECTED");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Validate expected synced var values and return true if all match.
+        /// Cheaper than the string version when you just need pass/fail.
+        /// </summary>
+        public static bool CheckVars(GameObject obj,
+            params (string varName, object expected)[] expectations)
+        {
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            if (udon == null) return false;
+            foreach (var (varName, expected) in expectations)
+            {
+                var actual = SimReflection.GetProgramVariable(udon, varName);
+                if (!Equals(actual, expected)) return false;
+            }
+            return true;
         }
 
         // ── Private Helpers ────────────────────────────────────────

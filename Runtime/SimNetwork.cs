@@ -219,12 +219,39 @@ namespace VRCSim
         // ── Ownership Helpers ──────────────────────────────────────
 
         /// <summary>
-        /// Transfer ownership and enforce kinematic rules.
-        /// This is what should happen in real VRChat but ClientSim skips the kinematic part.
+        /// Transfer ownership with full VRChat event flow:
+        /// 1. Fires OnOwnershipRequest on the UdonBehaviour (if it returns false, transfer is denied).
+        /// 2. Calls Networking.SetOwner to change ownership.
+        /// 3. Fires OnOwnershipTransferred on the UdonBehaviour.
+        /// 4. Enforces ForceKinematicOnRemote rules.
         /// </summary>
         public static void TransferOwnership(VRCPlayerApi newOwner, GameObject obj)
         {
+            var currentOwner = Networking.GetOwner(obj);
+            if (currentOwner != null && currentOwner.playerId == newOwner.playerId)
+                return; // already owner
+
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            if (udon != null)
+            {
+                // Fire OnOwnershipRequest — owner can deny the transfer
+                // In VRChat, Networking.SetOwner(player, obj) means player
+                // requests ownership for themselves: both params are newOwner.
+                bool allowed = SimReflection.FireOwnershipRequest(
+                    udon, newOwner, newOwner);
+                if (!allowed)
+                {
+                    Debug.Log($"[VRCSim] Ownership transfer denied: " +
+                        $"{newOwner.displayName} → {obj.name}");
+                    return;
+                }
+            }
+
             Networking.SetOwner(newOwner, obj);
+
+            if (udon != null)
+                SimReflection.FireOwnershipTransferred(udon, newOwner);
+
             EnforceKinematicOnRemote(obj);
         }
 

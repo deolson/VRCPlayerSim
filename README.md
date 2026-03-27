@@ -130,13 +130,13 @@ Summary of `VRCSim.VRCSim` entry points:
 | Lifecycle | `Init`, `IsReady`, `SpawnPlayer`, `RemovePlayer`, `RemoveAllPlayers`, `GetBots`, `GetBot` |
 | Movement | `Teleport` |
 | Stations | `SitInStation`, `ExitStation` |
-| Perspective | `RunAsPlayer`, `RunAsClient` |
+| Perspective | `RunAsPlayer`, `RunAsClient`, `RunAsClient<T>` |
 | Ownership | `SetOwner`, `GetOwner`, `TransferMaster` |
 | Variables | `GetVar`, `SetVar`, `SendEvent`, `GetSyncedVarNames`, `GetSyncedVars` |
 | Snapshots | `TakeSnapshot`, `DiffSnapshots` |
-| Simulation | `RunUpdate`, `RunEvent`, `SimulateDeserialization`, `SimulateLateJoiner`, `SimulateLateJoinerAll` |
+| Simulation | `RunUpdate`, `RunUpdate(obj, frames)`, `RunEvent`, `SimulateDeserialization`, `SimulateLateJoiner`, `SimulateLateJoinerAll` |
 | Networking | `SendNetworkEvent`, `EnforceKinematic`, `ValidateKinematic` |
-| Reporting | `GetStateReport`, `ValidateVars` |
+| Reporting | `GetStateReport`, `ValidateVars`, `CheckVars` |
 
 Lower-level access is available through `SimReflection` and `SimNetwork` — see API.md for details.
 
