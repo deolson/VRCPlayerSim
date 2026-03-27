@@ -34,7 +34,7 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 
 | Signature | Description |
 |-----------|-------------|
-| `bool SitInStation(VRCPlayerApi player, GameObject stationObj)` | Force a player to sit in a VRCStation. Fires events through the REAL ClientSim pipeline: IClientSimStationHandler.OnStationEnter → ClientSimUdonHelper → UdonBehaviour.RunEvent("_onStationEntered", ("Player", ...)) By wrapping in RunAsPlayer, Networking.LocalPlayer returns the correct player, so Udon code sees the right perspective. |
+| `bool SitInStation(VRCPlayerApi player, GameObject stationObj)` | Force a player to sit in a VRCStation. Fires events through the REAL ClientSim pipeline: IClientSimStationHandler.OnStationEnter → ClientSimUdonHelper → UdonBehaviour.RunEvent("_onStationEntered", ("Player", ...)) By wrapping in RunAsPlayer, Networking.LocalPlayer returns the correct player, so Udon code sees the right perspective. Do not call from inside RunAsPlayer/RunAsClient — this method handles perspective swap internally. |
 | `bool ExitStation(VRCPlayerApi player, GameObject stationObj)` | Force a player to exit a VRCStation. |
 
 ### Perspective Simulation
