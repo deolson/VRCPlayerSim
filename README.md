@@ -127,13 +127,14 @@ Summary of `VRCSim.VRCSim` entry points:
 
 | Category | Methods |
 |----------|---------|
-| Lifecycle | `Init`, `SpawnPlayer`, `RemovePlayer`, `RemoveAllPlayers` |
+| Lifecycle | `Init`, `IsReady`, `SpawnPlayer`, `RemovePlayer`, `RemoveAllPlayers`, `GetBots`, `GetBot` |
+| Movement | `Teleport` |
 | Stations | `SitInStation`, `ExitStation` |
 | Perspective | `RunAsPlayer`, `RunAsClient` |
 | Ownership | `SetOwner`, `GetOwner`, `TransferMaster` |
-| Variables | `GetVar`, `SetVar`, `SendEvent`, `GetSyncedVars` |
+| Variables | `GetVar`, `SetVar`, `SendEvent`, `GetSyncedVarNames`, `GetSyncedVars` |
 | Snapshots | `TakeSnapshot`, `DiffSnapshots` |
-| Simulation | `RunUpdate`, `RunEvent`, `SimulateDeserialization`, `SimulateLateJoinerAll` |
+| Simulation | `RunUpdate`, `RunEvent`, `SimulateDeserialization`, `SimulateLateJoiner`, `SimulateLateJoinerAll` |
 | Networking | `SendNetworkEvent`, `EnforceKinematic`, `ValidateKinematic` |
 | Reporting | `GetStateReport`, `ValidateVars` |
 
@@ -180,7 +181,7 @@ VRCSim is currently API-only. Planned additions:
 - **Single-process** — all players share one Unity instance. No network latency or packet loss.
 - **Cached `_localPlayer`** — `RunAsClient` swaps these; `RunAsPlayer` does not. This matches real VRChat behavior.
 - **`PlayerObjectStorage` file locks** — rapid spawn/remove cycles can trigger harmless ClientSim console errors.
-- **Station occupancy on remote bots** — `VRCStation.UseStation()` requires ClientSim's local player pipeline. VRCSim wraps this via `RunAsPlayer` internally.
+- **Station occupancy on remote bots** — `VRCStation.UseStation()` requires ClientSim's local player pipeline. VRCSim wraps this via `RunAsPlayer` internally. Perspective swaps support nesting, so `SitInStation` works inside `RunAsClient` blocks.
 
 ## License
 
