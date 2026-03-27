@@ -145,9 +145,6 @@ namespace VRCSim
         ///
         /// By wrapping in RunAsPlayer, Networking.LocalPlayer returns the
         /// correct player, so Udon code sees the right perspective.
-        /// 
-        /// Do not call from inside RunAsPlayer/RunAsClient — this method
-        /// handles perspective swap internally.
         /// </summary>
         public static bool SitInStation(VRCPlayerApi player, GameObject stationObj)
         {

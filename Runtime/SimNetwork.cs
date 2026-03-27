@@ -15,11 +15,15 @@ namespace VRCSim
     public static class SimNetwork
     {
         // ── Perspective Swap State ─────────────────────────────────
-        private static bool _inPerspectiveSwap;
-        private static int _savedMasterId;
-        private static int _savedLocalPlayerId;
-        private static VRCPlayerApi _savedLocalPlayer;
-        private static readonly List<(VRCPlayerApi player, bool wasLocal)> _localSwaps = new();
+
+        private struct SwapFrame
+        {
+            public int savedLocalPlayerId;
+            public VRCPlayerApi savedLocalPlayer;
+            public List<(VRCPlayerApi player, bool wasLocal)> localSwaps;
+        }
+
+        private static readonly Stack<SwapFrame> _swapStack = new();
 
         /// <summary>
         /// Run an action from the perspective of a specific player.
@@ -27,40 +31,39 @@ namespace VRCSim
         ///   - Networking.LocalPlayer returns the specified player
         ///   - Networking.IsMaster returns true ONLY if this player is actually master
         ///   - player.isLocal returns true for the specified player
+        ///
+        /// Supports nesting — SitInStation can be called inside RunAsClient.
+        /// Each level saves and restores its own state.
         /// </summary>
         public static void RunAsPlayer(VRCPlayerApi player, Action action)
         {
-            if (_inPerspectiveSwap)
-                throw new InvalidOperationException(
-                    "[VRCSim] Cannot nest RunAsPlayer calls");
-
             var pm = SimReflection.GetPlayerManager();
             if (pm == null)
                 throw new InvalidOperationException(
                     "[VRCSim] ClientSim not running — cannot swap perspective");
 
-            _inPerspectiveSwap = true;
-            _localSwaps.Clear();
-
-            // Save current state
-            _savedMasterId = SimReflection.GetMasterId(pm);
-            _savedLocalPlayerId = SimReflection.GetLocalPlayerId(pm);
-            _savedLocalPlayer = SimReflection.GetLocalPlayer(pm);
+            var frame = new SwapFrame
+            {
+                savedLocalPlayerId = SimReflection.GetLocalPlayerId(pm),
+                savedLocalPlayer = SimReflection.GetLocalPlayer(pm),
+                localSwaps = new List<(VRCPlayerApi, bool)>()
+            };
+            _swapStack.Push(frame);
 
             try
             {
                 // Mark old local player as non-local
-                if (_savedLocalPlayer != null)
+                if (frame.savedLocalPlayer != null)
                 {
-                    _localSwaps.Add((_savedLocalPlayer, true));
-                    SimReflection.SetIsLocal(_savedLocalPlayer, false);
+                    frame.localSwaps.Add((frame.savedLocalPlayer, true));
+                    SimReflection.SetIsLocal(frame.savedLocalPlayer, false);
                 }
 
                 // Make the target player the "local" player
                 SimReflection.SetLocalPlayerId(pm, player.playerId);
                 SimReflection.SetLocalPlayer(pm, player);
                 SimReflection.SetIsLocal(player, true);
-                _localSwaps.Add((player, false));
+                frame.localSwaps.Add((player, false));
 
                 // Master stays unchanged — this is the real VRChat behavior
                 // Player 1 is master regardless of whose perspective we're in
@@ -69,26 +72,25 @@ namespace VRCSim
             }
             finally
             {
+                _swapStack.Pop();
+
                 // Restore everything
-                SimReflection.SetLocalPlayerId(pm, _savedLocalPlayerId);
-                SimReflection.SetLocalPlayer(pm, _savedLocalPlayer);
+                SimReflection.SetLocalPlayerId(pm, frame.savedLocalPlayerId);
+                SimReflection.SetLocalPlayer(pm, frame.savedLocalPlayer);
 
                 // Restore isLocal on all swapped players
-                foreach (var (p, wasLocal) in _localSwaps)
+                foreach (var (p, wasLocal) in frame.localSwaps)
                 {
                     if (p != null && p.IsValid())
                         SimReflection.SetIsLocal(p, wasLocal);
                 }
-
-                _localSwaps.Clear();
-                _inPerspectiveSwap = false;
             }
         }
 
         /// <summary>
         /// Returns true if we're currently inside a RunAsPlayer block.
         /// </summary>
-        public static bool InPerspectiveSwap => _inPerspectiveSwap;
+        public static bool InPerspectiveSwap => _swapStack.Count > 0;
 
         // ── ForceKinematicOnRemote ─────────────────────────────────
 

@@ -34,7 +34,7 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 
 | Signature | Description |
 |-----------|-------------|
-| `bool SitInStation(VRCPlayerApi player, GameObject stationObj)` | Force a player to sit in a VRCStation. Fires events through the REAL ClientSim pipeline: IClientSimStationHandler.OnStationEnter → ClientSimUdonHelper → UdonBehaviour.RunEvent("_onStationEntered", ("Player", ...)) By wrapping in RunAsPlayer, Networking.LocalPlayer returns the correct player, so Udon code sees the right perspective. Do not call from inside RunAsPlayer/RunAsClient — this method handles perspective swap internally. |
+| `bool SitInStation(VRCPlayerApi player, GameObject stationObj)` | Force a player to sit in a VRCStation. Fires events through the REAL ClientSim pipeline: IClientSimStationHandler.OnStationEnter → ClientSimUdonHelper → UdonBehaviour.RunEvent("_onStationEntered", ("Player", ...)) By wrapping in RunAsPlayer, Networking.LocalPlayer returns the correct player, so Udon code sees the right perspective. |
 | `bool ExitStation(VRCPlayerApi player, GameObject stationObj)` | Force a player to exit a VRCStation. |
 
 ### Perspective Simulation
@@ -98,7 +98,7 @@ Simulates VRChat networking rules that ClientSim skips: - Perspective swapping (
 
 | Signature | Description |
 |-----------|-------------|
-| `void RunAsPlayer(VRCPlayerApi player, Action action)` | Run an action from the perspective of a specific player. While inside this block: - Networking.LocalPlayer returns the specified player - Networking.IsMaster returns true ONLY if this player is actually master - player.isLocal returns true for the specified player |
+| `void RunAsPlayer(VRCPlayerApi player, Action action)` | Run an action from the perspective of a specific player. While inside this block: - Networking.LocalPlayer returns the specified player - Networking.IsMaster returns true ONLY if this player is actually master - player.isLocal returns true for the specified player Supports nesting — SitInStation can be called inside RunAsClient. Each level saves and restores its own state. |
 | `bool InPerspectiveSwap` | Returns true if we're currently inside a RunAsPlayer block. |
 
 ### ForceKinematicOnRemote
