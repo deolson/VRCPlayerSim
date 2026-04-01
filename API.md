@@ -20,7 +20,7 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 |-----------|-------------|
 | `VRCPlayerApi SpawnPlayer(string name)` | Spawn a remote player bot. Fires OnPlayerJoined on all UdonBehaviours. Returns the VRCPlayerApi for the new player. |
 | `void RemovePlayer(VRCPlayerApi player)` | Remove a bot player. Fires OnPlayerLeft on all UdonBehaviours. If the removed player was master, auto-transfers master to the next player and fires _onNewMaster — matching real VRChat behavior. |
-| `void RemoveAllPlayers()` | Remove all bots spawned in this session. Note: Does NOT fire OnPlayerLeft events. Use RemovePlayer() in a loop if you need disconnect event testing. |
+| `void RemoveAllPlayers(bool fireEvents = true)` | Remove all bots spawned in this session. By default fires OnPlayerLeft on all UdonBehaviours for each bot (matching real VRChat disconnect behavior). Pass fireEvents: false for fast teardown when you don't need event processing. |
 | `List<VRCPlayerApi> GetBots()` | Get all bots. |
 | `VRCPlayerApi GetBot(string name)` | Get a bot by exact display name. |
 | `VRCPlayerApi GetBotByPrefix(string prefix)` | Get first bot whose name contains the given prefix (substring match). |
@@ -30,6 +30,23 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 | Signature | Description |
 |-----------|-------------|
 | `void Teleport(VRCPlayerApi player, Vector3 position, Quaternion? rotation = null)` | Teleport a player to a position. Works for both local and remote. |
+
+### Player Movement
+
+| Signature | Description |
+|-----------|-------------|
+| `bool MovePlayerToward(VRCPlayerApi player, Vector3 target, float speed = 3f, float arrivalDist = 0.2f)` | Walk a player toward a target each frame. Returns true when arrived. Uses Rigidbody.MovePosition when available (see EquipPlayerCollider). |
+| `void EquipPlayerCollider(VRCPlayerApi player, float radius = 0.3f, float height = 1.8f)` | Give a bot a physics capsule. Adds CapsuleCollider + kinematic Rigidbody. |
+
+### GameObject Physics
+
+| Signature | Description |
+|-----------|-------------|
+| `void ApplyForce(GameObject obj, Vector3 force, ForceMode mode = ForceMode.Force)` | Apply force to a GameObject Rigidbody. |
+| `void SetVelocity(GameObject obj, Vector3 velocity)` | Set velocity of a GameObject Rigidbody directly. |
+| `bool MoveToward(GameObject obj, Vector3 target, float speed = 5f)` | Move a GameObject toward a target. Returns true when arrived. |
+| `Vector3 GetVelocity(GameObject obj)` | Get a GameObject Rigidbody velocity. |
+| `bool IsBot(VRCPlayerApi player)` | Check whether a VRCPlayerApi is a VRCSim-spawned bot. |
 
 ### Station Interaction
 
@@ -127,6 +144,13 @@ VRC Player Simulator — public API. Simulates multiplayer interactions on top o
 | Signature | Description |
 |-----------|-------------|
 | `void RunEventWithArgs(GameObject obj, string eventName, params (string name, object value)[] args)` | Fire an Udon event with named arguments on a specific object. Mirrors how VRChat passes parameters to lifecycle events. Usage: VRCSim.RunEventWithArgs(gmObj, "_onPlayerLeft", ("player", bobApi)); |
+
+### Interact Simulation
+
+| Signature | Description |
+|-----------|-------------|
+| `void SimulateInteract(VRCPlayerApi player, GameObject obj)` | Simulate a player pressing Interact on a GameObject. Fires _interact on the first UdonBehaviour from that player perspective. |
+| `void SimulateInteract(GameObject obj)` | SimulateInteract as the current local player. |
 
 ### Station Query
 

@@ -122,12 +122,20 @@ namespace VRCSim
 
         /// <summary>
         /// Remove all bots spawned in this session.
-        /// Note: Does NOT fire OnPlayerLeft events. Use RemovePlayer() in a loop
-        /// if you need disconnect event testing.
+        /// By default fires OnPlayerLeft on all UdonBehaviours for each bot
+        /// (matching real VRChat disconnect behavior). Pass fireEvents: false
+        /// for fast teardown when you don't need event processing.
         /// </summary>
-        public static void RemoveAllPlayers()
+        public static void RemoveAllPlayers(bool fireEvents = true)
         {
             EnsureReady();
+            if (fireEvents)
+            {
+                foreach (var bot in new List<VRCPlayerApi>(_bots))
+                    if (bot != null && bot.IsValid())
+                        RemovePlayer(bot);
+                return;
+            }
             foreach (var bot in new List<VRCPlayerApi>(_bots))
             {
                 if (bot != null && bot.IsValid())
@@ -137,7 +145,7 @@ namespace VRCSim
                 }
             }
             _bots.Clear();
-            Debug.Log("[VRCSim] All bots removed");
+            Debug.Log("[VRCSim] All bots removed (events skipped)");
         }
 
         /// <summary>Get all bots.</summary>
@@ -174,6 +182,119 @@ namespace VRCSim
             player.gameObject.transform.position = position;
             if (rotation.HasValue)
                 player.gameObject.transform.rotation = rotation.Value;
+        }
+
+        // ── Player Movement ────────────────────────────────────────
+
+        /// <summary>
+        /// Walk a player toward a target each frame. Returns true when arrived.
+        /// Uses Rigidbody.MovePosition when available (see EquipPlayerCollider).
+        /// </summary>
+        public static bool MovePlayerToward(VRCPlayerApi player,
+            Vector3 target, float speed = 3f, float arrivalDist = 0.2f)
+        {
+            EnsureReady();
+            if (player?.gameObject == null) return true;
+            var go = player.gameObject;
+            var pos = go.transform.position;
+            var delta = target - pos;
+            delta.y = 0;
+            if (delta.magnitude <= arrivalDist) return true;
+            var direction = delta.normalized;
+            float dt = Time.deltaTime > 0f ? Time.deltaTime : 0.02f;
+            var step = direction * speed * dt;
+            var rb = go.GetComponent<Rigidbody>();
+            if (rb != null) rb.MovePosition(pos + step);
+            else go.transform.position = pos + step;
+            go.transform.rotation = Quaternion.LookRotation(direction);
+            return false;
+        }
+
+        /// <summary>
+        /// Give a bot a physics capsule. Adds CapsuleCollider + kinematic Rigidbody.
+        /// </summary>
+        public static void EquipPlayerCollider(VRCPlayerApi player,
+            float radius = 0.3f, float height = 1.8f)
+        {
+            EnsureReady();
+            if (player?.gameObject == null) return;
+            var go = player.gameObject;
+            if (go.GetComponent<CapsuleCollider>() == null)
+            {
+                var capsule = go.AddComponent<CapsuleCollider>();
+                capsule.radius = radius;
+                capsule.height = height;
+                capsule.center = new Vector3(0, height / 2f, 0);
+            }
+            if (go.GetComponent<Rigidbody>() == null)
+            {
+                var rb = go.AddComponent<Rigidbody>();
+                rb.isKinematic = true;
+                rb.useGravity = false;
+                rb.constraints = RigidbodyConstraints.FreezeRotation;
+            }
+        }
+
+        // ── GameObject Physics ────────────────────────────────────
+
+        /// <summary>Apply force to a GameObject Rigidbody.</summary>
+        public static void ApplyForce(GameObject obj, Vector3 force,
+            ForceMode mode = ForceMode.Force)
+        {
+            EnsureReady();
+            var rb = obj != null ? obj.GetComponent<Rigidbody>() : null;
+            if (rb == null) return;
+            rb.isKinematic = false;
+            rb.AddForce(force, mode);
+        }
+
+        /// <summary>Set velocity of a GameObject Rigidbody directly.</summary>
+        public static void SetVelocity(GameObject obj, Vector3 velocity)
+        {
+            EnsureReady();
+            var rb = obj != null ? obj.GetComponent<Rigidbody>() : null;
+            if (rb == null) return;
+            rb.isKinematic = false;
+            rb.velocity = velocity;
+        }
+
+        /// <summary>Move a GameObject toward a target. Returns true when arrived.</summary>
+        public static bool MoveToward(GameObject obj, Vector3 target, float speed = 5f)
+        {
+            EnsureReady();
+            if (obj == null) return true;
+            var rb = obj.GetComponent<Rigidbody>();
+            if (rb == null)
+            {
+                var diff = target - obj.transform.position;
+                if (diff.magnitude < 0.1f) return true;
+                obj.transform.position = Vector3.MoveTowards(
+                    obj.transform.position, target, speed * Time.fixedDeltaTime);
+                return false;
+            }
+            var delta = target - obj.transform.position;
+            if (delta.magnitude < 0.1f) { rb.velocity = Vector3.zero; return true; }
+            rb.isKinematic = false;
+            rb.velocity = delta.normalized * speed;
+            return false;
+        }
+
+        /// <summary>Get a GameObject Rigidbody velocity.</summary>
+        public static Vector3 GetVelocity(GameObject obj)
+        {
+            if (obj == null) return Vector3.zero;
+            var rb = obj.GetComponent<Rigidbody>();
+            return rb != null ? rb.velocity : Vector3.zero;
+        }
+
+        /// <summary>Check whether a VRCPlayerApi is a VRCSim-spawned bot.</summary>
+        public static bool IsBot(VRCPlayerApi player)
+        {
+            if (player == null) return false;
+            foreach (var b in _bots)
+                if (b != null && b.playerId == player.playerId)
+                    return true;
+            return false;
         }
 
         // ── Station Interaction ────────────────────────────────────

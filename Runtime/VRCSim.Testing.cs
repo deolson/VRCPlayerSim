@@ -220,6 +220,34 @@ namespace VRCSim
                 SimReflection.RunEventWithArgs(udon, eventName, args);
         }
 
+        // ── Interact Simulation ───────────────────────────────────
+
+        /// <summary>
+        /// Simulate a player pressing Interact on a GameObject.
+        /// Fires _interact on the first UdonBehaviour from that player perspective.
+        /// </summary>
+        public static void SimulateInteract(VRCPlayerApi player, GameObject obj)
+        {
+            EnsureReady();
+            SimNetwork.RunAsPlayer(player, () =>
+            {
+                var udon = SimReflection.GetUdonBehaviour(obj);
+                if (udon != null)
+                    SimReflection.RunEvent(udon, "_interact");
+            });
+        }
+
+        /// <summary>
+        /// SimulateInteract as the current local player.
+        /// </summary>
+        public static void SimulateInteract(GameObject obj)
+        {
+            EnsureReady();
+            var udon = SimReflection.GetUdonBehaviour(obj);
+            if (udon != null)
+                SimReflection.RunEvent(udon, "_interact");
+        }
+
         // ── Station Query ──────────────────────────────────────────
 
         /// <summary>
